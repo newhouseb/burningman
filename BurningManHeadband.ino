@@ -1,3 +1,33 @@
+/*** LED Configuration ***/
+
+#include <FastLED.h>
+#define NUM_LEDS 40
+
+#define COLOR_DATA_PIN    10
+#define COLOR_CLOCK_PIN   6
+CRGB colorLeds[NUM_LEDS];
+
+#define WHITE_DATA_PIN    5
+#define WHITE_CLOCK_PIN   3
+CRGB whiteLeds[NUM_LEDS];
+
+/*** Radio Configuration ***/
+
+#include <SPI.h>
+#include <RH_RF69.h>
+#define RF69_FREQ 915.0
+
+#define RFM69_CS      8
+#define RFM69_INT     7
+#define RFM69_RST     4
+#define LED           13
+
+RH_RF69 rf69(RFM69_CS, RFM69_INT);
+long clientId;
+
+
+
+
 #include <Adafruit_DotStar.h>
 // Because conditional #includes don't work w/Arduino sketches...
 //#include <SPI.h>         // COMMENT OUT THIS LINE FOR GEMMA OR TRINKET
@@ -135,29 +165,6 @@ void visualizer() {
 
 #define VBATPIN A9
 
-void setup() {
-
-#if defined(__AVR_ATtiny85__) && (F_CPU == 16000000L)
-  clock_prescale_set(clock_div_1); // Enable 16 MHz on Trinket
-#endif
-
-  pinMode(2, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(2),buttonPressed,CHANGE);  
-
-  strip.begin(); // Initialize pins for output
-  strip.show();  // Turn all LEDs off ASAP
-
-  strip2.begin(); // Initialize pins for output
-  strip2.show();  // Turn all LEDs off ASAP
-
-  for (int i = 0; i < 50; i++) {
-    last50MaxBuckets[i] = 0;
-  }
-  for (int i = 0; i < 100; i++) {
-    last100Samples[i] = 0;
-  }
-}
-
 int lastButton = 1;
 int lastInterrupt = 0;
 int activeProgram = 0;
@@ -260,7 +267,150 @@ void itsthepolice() {
 typedef void (* Cycle)();
 Cycle CYCLES[] = {battery, rainbow, opposing_sin, oscillating_grid, oscillating_lines, the_worm, visualizer};
 
+void setup() {
+  // delay(3000);
+
+  // Initialize LEDs
+  FastLED.addLeds<APA102, COLOR_DATA_PIN, COLOR_CLOCK_PIN, BGR>(colorLeds, NUM_LEDS).setCorrection( TypicalLEDStrip );
+  FastLED.addLeds<APA102, WHITE_DATA_PIN, WHITE_CLOCK_PIN, BGR>(whiteLeds, NUM_LEDS).setCorrection( TypicalLEDStrip );
+  FastLED.setBrightness( 20 );
+
+  // Reset the Radio
+  pinMode(RFM69_RST, OUTPUT);
+  digitalWrite(RFM69_RST, LOW);
+  delay(10);
+  digitalWrite(RFM69_RST, HIGH);
+  delay(10);
+  digitalWrite(RFM69_RST, LOW);
+  delay(10);
+
+  // Wait for initialization
+  if (!rf69.init()) {
+    Serial.println("RFM69 radio init failed");
+    while (1);
+  }
+
+  // Set Frequency and initialize LED for transmission
+  Serial.println("RFM69 radio init OK!");
+  if (!rf69.setFrequency(RF69_FREQ)) {
+    Serial.println("setFrequency failed");
+  }
+  pinMode(LED, OUTPUT);
+  Serial.print("RFM69 radio @");  Serial.print((int)RF69_FREQ);  Serial.println(" MHz");
+
+  rf69.setTxPower(20, true);
+
+  // Initialize a random number generator to generate client ids for automatic master/slave setup
+  randomSeed(analogRead(A11));
+  clientId = random(1024);
+
+  // Initialize interrupts for button that changes program
+  pinMode(2, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(2),buttonPressed,CHANGE);  
+
+  /*
+  strip.begin(); // Initialize pins for output
+  strip.show();  // Turn all LEDs off ASAP
+
+  strip2.begin(); // Initialize pins for output
+  strip2.show();  // Turn all LEDs off ASAP
+  */
+
+  for (int i = 0; i < 50; i++) {
+    last50MaxBuckets[i] = 0;
+  }
+  for (int i = 0; i < 100; i++) {
+    last100Samples[i] = 0;
+  }
+}
+
+
+// This is used for time synchronization
+long lastPing = 0;
+long timeDelta = 0;
+
+struct message {
+  char kind[4];
+  unsigned long source_id;
+  long query_ts;
+  long response_ts;
+  unsigned long response_id;
+};
+
+void send_ping() {
+  struct message msg;
+  msg.kind[0] = 'P';
+  msg.kind[1] = 'I';
+  msg.kind[2] = 'N';
+  msg.kind[3] = 'G';
+  msg.source_id = clientId;
+  msg.query_ts = millis() + timeDelta;
+  rf69.send((char *) &msg, sizeof(msg));
+  Serial.println("Sending ping");
+};
+
+void send_pong(struct message ping) {
+  ping.kind[1] = 'O';
+  ping.response_ts = millis() + timeDelta;
+  ping.response_id = clientId;
+  rf69.send((char *) &ping, sizeof(ping));
+}
+
+void handle_messages() {
+  while (rf69.available()) {
+    struct message msg;
+    uint8_t len = sizeof(msg);
+    if (rf69.recv((char *) &msg, &len)) {
+      if (!len) return;
+      if (strncmp(msg.kind, "PING", 4) == 0) {
+        send_pong(msg);
+      }
+      if (strncmp(msg.kind, "PONG", 4) == 0) {
+        long now = millis() + timeDelta;
+
+        // Update offsets
+        Serial.print("Got pong: ");
+        Serial.print(msg.source_id);
+        Serial.print(" -> ");
+        Serial.print(msg.response_id);
+        Serial.print(": ");
+        Serial.print(msg.query_ts);
+        Serial.print(" ");
+        Serial.print(msg.response_ts);
+        Serial.print(" ");
+        Serial.println(now);
+
+        if (msg.source_id < msg.response_id) {
+          long change = (2*msg.response_ts - msg.query_ts - now) / 2;
+          Serial.print("Updating by ");
+          Serial.println(change);
+          timeDelta += change;
+        }
+      }
+    } 
+  }
+}
+
 void loop() {
+  float t = ((float) (millis() + timeDelta)) / 1000.0;
+
+  for (int i = 0; i < NUM_LEDS; i++) {
+    colorLeds[i] = CHSV((int) (t * 120.0) % 255, 255, 255);
+    whiteLeds[i] = CRGB::Black;
+  }
+
+  FastLED.show();
+
+  // Respond to any pending messages
+  handle_messages();
+
+  // Send a time sync ping once a second
+  if (millis() - lastPing > 1000) {
+    send_ping();
+    lastPing = millis();
+  }
+
+  /*
   int num = sizeof(CYCLES)/ sizeof(CYCLES[0]);
   CYCLES[activeProgram % num]();
   
