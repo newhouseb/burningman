@@ -48,15 +48,7 @@ Adafruit_DotStar strip2(NUMPIXELS, DATAPIN2, CLOCKPIN2, DOTSTAR_BRG);
 
 float t = 0;
 
-void opposing_sin() {
-  for (int i = 0; i < 40; i++) {
-    float intensity = max(0, sin((float) i/4.0 + t*0.1));
-    intensity = 32.0 * intensity * intensity * intensity;
-    strip.setPixelColor(i, 0xFF & ((int) intensity));
-    strip2.setPixelColor(40 - i - 1, 0xFF & ((int) intensity));
-  }
-}
-
+/*
 void oscillating_grid() {
   for (int i = 0; i < 40; i++) {
     float intensity = (sin(t*0.1) + 1.0) / 2.0;
@@ -69,207 +61,30 @@ void oscillating_grid() {
     strip2.setPixelColor(i, 0xFF & ((int) ((i % 2) == 1 ? intensity : intensity2)));
   }
 }
+*/
 
-void oscillating_lines() {
-  for (int i = 0; i < 40; i++) {
-    float intensity = (sin(t*0.1) + 1.0) / 2.0;
-    intensity = 32.0 * intensity * intensity * intensity;
-    
-    float intensity2 = (cos(t*0.1 + 3.14159/2.0) + 1.0) / 2.0;
-    intensity2 = 32.0 * intensity2 * intensity2 * intensity2;
-    
-    strip.setPixelColor(i, 0xFF & ((int) intensity));
-    strip2.setPixelColor(i, 0xFF & ((int) intensity2));
+int activeProgram = 0;
+long lastProgramChange = 0;
+void changeProgram()
+{
+  long ts = millis();
+  if (ts - lastProgramChange < 200)  {
+    return;
   }
-}
-
-void the_worm() {
-  float divisor = 80 / (3.14159*2.0*2.0);
-  for (int i = 0; i < 80; i++) {
-    float intensity = max(0, sin((float) i/divisor + t*0.1));
-    intensity = 32.0 * intensity * intensity * intensity;
-
-    if (i < 40) {
-      strip.setPixelColor(i, 0xFF & ((int) intensity));
-    } else {
-      strip2.setPixelColor(40 - (i - 40) - 1, 0xFF & ((int) intensity));
-    }
-  }
+  lastProgramChange = ts;
+  activeProgram++;
 }
 
 int minSound = 1024;
 int numBuckets = 5;
 
-int last100Samples[100];
+int lastSamples[100];
 int sampleIndex = 0;
-int last50MaxBuckets[50];
+int lastMaxBuckets[50];
 int maxBucketIndex = 0;
 
-void visualizer() {
-  int sound = analogRead(A0);
-  if (sound < minSound) {
-    minSound = sound;
-  }
-
-  last100Samples[sampleIndex] = sound;
-  sampleIndex = (sampleIndex + 1) % 100;
-  if (sampleIndex == 0) {
-    int maxSample = 0;
-    for(int i = 0; i < 100; i++) {
-      if (last100Samples[i] > maxSample) {
-        maxSample = last100Samples[i];
-      }
-    }
-    last50MaxBuckets[maxBucketIndex] = maxSample;
-    Serial.print(maxBucketIndex);
-    Serial.print(" -> ");
-    Serial.println(maxSample);
-    maxBucketIndex = (maxBucketIndex + 1) % numBuckets;
-  }
-
-  int maxSound = 0;
-  for (int i = 0; i < numBuckets; i++) {
-    if (last50MaxBuckets[i] > maxSound) {
-      maxSound = last50MaxBuckets[i];
-    }
-  }
-  
-  float soundRatio = 0.5;
-  if (minSound != maxSound) {
-    soundRatio = (float) (sound - minSound) / (float) (maxSound - minSound);
-  }
-  for (int i = 0; i < 40; i++) {
-    float ratio = ((float) i)/40.0;
-    if (ratio < soundRatio) {
-      strip.setPixelColor(i, 0x11);
-      strip2.setPixelColor(i, 0x11);
-    } else {
-      strip.setPixelColor(i, 0x00);
-      strip2.setPixelColor(i, 0x00);
-    }
-  }
-
-  /*
-  Serial.print(sound);
-  Serial.print(" ");
-  Serial.print(minSound);
-  Serial.print(" ");
-  Serial.print(maxSound);
-  Serial.print(" ");
-  Serial.println(soundRatio);
-  Serial.print(" ");
-  Serial.println(maxBucketIndex);
-  */
-  
-}
-
-#define VBATPIN A9
-
-int lastButton = 1;
-int lastInterrupt = 0;
-int activeProgram = 0;
-int numPrograms = 5;
-
-void buttonPressed()
-{
-  int pin = digitalRead(2);
-  int ts = millis();
-
-  // Debounce
-  if (ts - lastInterrupt <= 100) {
-    return;
-  }
-  
-  // More debouncing
-  if (pin == lastButton) {
-    return;
-  }
-
-  lastInterrupt = ts;
-  lastButton = pin;
-  if (pin == 0) {
-    Serial.println("Down");
-    activeProgram = (activeProgram + 1);
-  } else {
-    Serial.println("Up");
-  }
-}
-
-void rainbow() {
-   for (int i = 0; i < 40; i++) {
-    float intensity = max(0, sin((float) i/4.0 + t*0.1));
-    intensity = 32.0 * intensity * intensity * intensity;
-    strip.setPixelColor(i, Brightness(Wheel(i*3 + t*2), 0.1));
-    strip2.setPixelColor(i, 0x000011);
-  }
-}
-
-int min_voltage_addr = 0;
-int max_voltage_addr = sizeof(float);
-
-void battery() {
-  float measuredvbat = analogRead(VBATPIN);
-  measuredvbat *= 2;    // we divided by 2, so multiply back
-  measuredvbat *= 3.3;  // Multiply by 3.3V, our reference voltage
-  measuredvbat /= 1024; // convert to voltage
-
-  // Keep track of min and max voltage
-  float minimum_voltage = EEPROM.read(min_voltage_addr);
-  if ((measuredvbat < minimum_voltage) || minimum_voltage < 3.0 || minimum_voltage > 5.0) {
-    EEPROM.write(min_voltage_addr, measuredvbat);
-  }
-
-  float maximum_voltage = EEPROM.read(min_voltage_addr);
-  if ((measuredvbat > maximum_voltage) || maximum_voltage < 3.0 || maximum_voltage > 5.0) {
-    EEPROM.write(maximum_voltage, measuredvbat);
-  }
-
-  minimum_voltage = 3.2;
-  maximum_voltage = 4.2;
-  float voltageRatio = (maximum_voltage - measuredvbat) / (maximum_voltage - minimum_voltage);
-  for (int i = 0; i < 40; i++) {
-    float ratio = ((float) i)/40.0;
-    if (ratio > voltageRatio) {
-      strip.setPixelColor(i, 0x000011);
-      strip2.setPixelColor(i, 0x11);
-    } else {
-      strip.setPixelColor(i, 0x001100);
-      strip2.setPixelColor(i, 0x11);
-    }
-  }
-
-  //Serial.print("VBat: " ); Serial.print(voltageRatio); Serial.print(" "); Serial.println(measuredvbat);
-}
-
-void itsthepolice() {
-  for (int i = 0; i < 40; i++) {
-    if (((i / 10) % 2) == 0) {
-      if ((((int)t) % 2) == 0) {
-        strip.setPixelColor(i, 0x000011);
-      } else {
-        strip.setPixelColor(i, 0x001100);
-      }
-    } else {
-      if ((((int)t) % 2) == 0) {
-        strip.setPixelColor(i, 0x001100);
-      } else {
-        strip.setPixelColor(i, 0x000011);
-      }
-    }
-    if ((((int)t) % 2) == 0) {
-      strip2.setPixelColor(i, 0x000011);
-    } else {
-      strip2.setPixelColor(i, 0x000000);
-    }
-  }
-}
-
-typedef void (* Cycle)();
-Cycle CYCLES[] = {battery, rainbow, opposing_sin, oscillating_grid, oscillating_lines, the_worm, visualizer};
 
 void setup() {
-  // delay(3000);
-
   // Initialize LEDs
   FastLED.addLeds<APA102, COLOR_DATA_PIN, COLOR_CLOCK_PIN, BGR>(colorLeds, NUM_LEDS).setCorrection( TypicalLEDStrip );
   FastLED.addLeds<APA102, WHITE_DATA_PIN, WHITE_CLOCK_PIN, BGR>(whiteLeds, NUM_LEDS).setCorrection( TypicalLEDStrip );
@@ -306,21 +121,13 @@ void setup() {
 
   // Initialize interrupts for button that changes program
   pinMode(2, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(2),buttonPressed,CHANGE);  
-
-  /*
-  strip.begin(); // Initialize pins for output
-  strip.show();  // Turn all LEDs off ASAP
-
-  strip2.begin(); // Initialize pins for output
-  strip2.show();  // Turn all LEDs off ASAP
-  */
+  attachInterrupt(digitalPinToInterrupt(2),changeProgram,LOW);  
 
   for (int i = 0; i < 50; i++) {
-    last50MaxBuckets[i] = 0;
+    lastMaxBuckets[i] = 0;
   }
   for (int i = 0; i < 100; i++) {
-    last100Samples[i] = 0;
+    lastSamples[i] = 0;
   }
 }
 
@@ -328,6 +135,7 @@ void setup() {
 // This is used for time synchronization
 long lastPing = 0;
 long timeDelta = 0;
+long lastRSSI = 0;
 
 struct message {
   char kind[4];
@@ -335,6 +143,8 @@ struct message {
   long query_ts;
   long response_ts;
   unsigned long response_id;
+  long lastProgramChange;
+  int currentProgram;
 };
 
 void send_ping() {
@@ -345,6 +155,8 @@ void send_ping() {
   msg.kind[3] = 'G';
   msg.source_id = clientId;
   msg.query_ts = millis() + timeDelta;
+  msg.lastProgramChange = lastProgramChange + timeDelta;
+  msg.currentProgram = activeProgram;
   rf69.send((char *) &msg, sizeof(msg));
   Serial.println("Sending ping");
 };
@@ -361,8 +173,22 @@ void handle_messages() {
     struct message msg;
     uint8_t len = sizeof(msg);
     if (rf69.recv((char *) &msg, &len)) {
+      /*
+      Serial.print("Got packet: ");
+      Serial.print(msg.kind);
+      Serial.print(" ");
+      Serial.print(len);
+      Serial.print(" @ ");
+      Serial.println(rf69.lastRssi(), DEC);
+      */
+      lastRSSI = rf69.lastRssi();
+
       if (!len) return;
+
       if (strncmp(msg.kind, "PING", 4) == 0) {
+        if (msg.lastProgramChange > (lastProgramChange + timeDelta) && msg.currentProgram != activeProgram) {
+          activeProgram = msg.currentProgram;
+        }
         send_pong(msg);
       }
       if (strncmp(msg.kind, "PONG", 4) == 0) {
@@ -391,77 +217,197 @@ void handle_messages() {
   }
 }
 
-void loop() {
-  float t = ((float) (millis() + timeDelta)) / 1000.0;
-
+void uniform_rainbow(float t) {
   for (int i = 0; i < NUM_LEDS; i++) {
     colorLeds[i] = CHSV((int) (t * 120.0) % 255, 255, 255);
     whiteLeds[i] = CRGB::Black;
   }
+}
 
-  FastLED.show();
-
-  // Respond to any pending messages
-  handle_messages();
-
-  // Send a time sync ping once a second
-  if (millis() - lastPing > 1000) {
-    send_ping();
-    lastPing = millis();
+void rainbow_stripes(float t) {
+  for (int i = 0; i < NUM_LEDS; i++) {
+    colorLeds[i] = CHSV(((i*255/NUM_LEDS) + (int) (t * 120.0)) % 255, 255, 255);
+    whiteLeds[i] = CRGB::Black;
   }
+}
 
-  /*
-  int num = sizeof(CYCLES)/ sizeof(CYCLES[0]);
-  CYCLES[activeProgram % num]();
-  
-  t += 1.0;
-  strip.show();                     // Refresh strip
-  strip2.show();                     // Refresh strip
-  //delay(10);                        // Pause 20 milliseconds (~50 FPS)
+void white_bar(float t) {
+  for (int i = 0; i < NUM_LEDS; i++) {
+    colorLeds[i] = CRGB::Black;
+    whiteLeds[i] = CRGB::White;
+  }
+}
 
-  /*
+void red_bar(float t) {
+  for (int i = 0; i < NUM_LEDS; i++) {
+    colorLeds[i] = CRGB::Red;
+    whiteLeds[i] = CRGB::Black;
+  }
+}
+
+#define CENTER_PIXEL 17
+
+void rainbow_mirror_stripes(float t) {
+  for (int i = 0; i < NUM_LEDS; i++) {
+    int j;
+    if (i < CENTER_PIXEL) {
+      j = CENTER_PIXEL - i - 1;
+    } else {
+      j = i - CENTER_PIXEL;
+    }
+    colorLeds[i] = CHSV(((j*255/NUM_LEDS) - (int) (t * 120.0)) % 255, 255, 255);
+    whiteLeds[i] = CRGB::Black;
+  }
+}
+
+void white_mirror_comet(float t) {
+  for (int i = 0; i < NUM_LEDS; i++) {
+    int j;
+    if (i < CENTER_PIXEL) {
+      j = CENTER_PIXEL - i - 1;
+    } else {
+      j = i - CENTER_PIXEL;
+    }
+
+    float intensity = max(0, sin((float) j/4.0 - t*10));
+    intensity = 255.0 * intensity * intensity * intensity;
+
+    colorLeds[i] = CRGB::Black;
+    whiteLeds[i] = CRGB::Black;
+    whiteLeds[i].r = 0xFF & ((int) intensity);
+  }
+}
+
+void twinkle(float t) {
+  for (int i = 0; i < NUM_LEDS; i++) {
+    colorLeds[i] = CRGB::Black;
+    whiteLeds[i] = CRGB::Black; 
+    whiteLeds[i].r = dim8_raw(sin8(inoise8_raw(i*NUM_LEDS*7) + inoise8_raw(i*NUM_LEDS)*10*t));
+  }
+}
+
+long blendedRSSI = 0;
+
+void hot_and_cold(float t) {
+  blendedRSSI = (long) (((float) blendedRSSI)*0.99 + ((float) lastRSSI)*0.01);
+  float ratio = (blendedRSSI - -20.0) / (-70.0 - -20.0);
+
+  for (int i = 0; i < NUM_LEDS; i++) {
+    colorLeds[i] = CRGB::Black;
+    float b = 255*(ratio);
+    float r = 255*(1.0 - ratio);
+    colorLeds[i].r = max(0, min(255, r));
+    colorLeds[i].b = max(0, min(255, b));
+    whiteLeds[i] = CRGB::Black; 
+  }
+}
+
+#define VBATPIN A9
+
+void showVoltage() {
   float measuredvbat = analogRead(VBATPIN);
   measuredvbat *= 2;    // we divided by 2, so multiply back
   measuredvbat *= 3.3;  // Multiply by 3.3V, our reference voltage
   measuredvbat /= 1024; // convert to voltage
-  Serial.print("VBat: " ); Serial.println(measuredvbat);
-  */
-}
 
-// Utility Functions
-
-// Create a 24 bit color value from R,G,B
-uint32_t Color(byte r, byte g, byte b)
-{
-  uint32_t c;
-  c = r;
-  c <<= 8;
-  c |= g;
-  c <<= 8;
-  c |= b;
-  return c;
-}
-
-//Input a value 0 to 255 to get a color value.
-//The colours are a transition r - g -b - back to r
-uint32_t Wheel(byte WheelPos)
-{
-  if (WheelPos < 85) {
-   return Color(WheelPos * 3, 255 - WheelPos * 3, 0);
-  } else if (WheelPos < 170) {
-   WheelPos -= 85;
-   return Color(255 - WheelPos * 3, 0, WheelPos * 3);
-  } else {
-   WheelPos -= 170; 
-   return Color(0, WheelPos * 3, 255 - WheelPos * 3);
+  float minimum_voltage = 3.2;
+  float maximum_voltage = 4.2;
+  float voltageRatio = (maximum_voltage - measuredvbat) / (maximum_voltage - minimum_voltage);
+  for (int i = 0; i < 40; i++) {
+    float ratio = ((float) i)/40.0;
+    if (ratio > voltageRatio) {
+      colorLeds[i] = CRGB::Blue;
+    } else {
+      colorLeds[i] = CRGB::Red;
+    }
+    whiteLeds[i] = CRGB::Black;
   }
 }
 
-uint32_t Brightness(uint32_t input, float level) {
-  uint32_t c;
-  byte b = input & 0xFF;
-  byte g = (input & 0xFF00) >> 8;
-  byte r = (input & 0xFF0000) >> 16;
+void visualizer() {
+  int sound = analogRead(A0);
+  if (sound < minSound) {
+    minSound = sound;
+  }
 
-  return Color(r*level, g*level, b*level);
+  lastSamples[sampleIndex] = sound;
+  sampleIndex = (sampleIndex + 1) % 100;
+  if (sampleIndex == 0) {
+    int maxSample = 0;
+    for(int i = 0; i < 100; i++) {
+      if (lastSamples[i] > maxSample) {
+        maxSample = lastSamples[i];
+      }
+    }
+    lastMaxBuckets[maxBucketIndex] = maxSample;
+    Serial.print(maxBucketIndex);
+    Serial.print(" -> ");
+    Serial.println(maxSample);
+    maxBucketIndex = (maxBucketIndex + 1) % numBuckets;
+  }
+
+  int maxSound = 0;
+  for (int i = 0; i < numBuckets; i++) {
+    if (lastMaxBuckets[i] > maxSound) {
+      maxSound = lastMaxBuckets[i];
+    }
+  }
+  
+  float soundRatio = 0.5;
+  if (minSound != maxSound) {
+    soundRatio = (float) (sound - minSound) / (float) (maxSound - minSound);
+  }
+  for (int i = 0; i < 40; i++) {
+    int j;
+    if (i < CENTER_PIXEL) {
+      j = CENTER_PIXEL - i - 1;
+    } else {
+      j = i - CENTER_PIXEL;
+    }
+
+    float ratio = ((float) j)/20.0;
+    colorLeds[i] = CRGB::Black;
+    whiteLeds[i] = CRGB::Black; 
+    if (ratio < soundRatio) {
+      colorLeds[i] = CHSV((j*255/30) % 255, 255, 255);
+    } else {
+      whiteLeds[i].r = 0x11;
+    }
+  }
+
+  /*
+  Serial.print(sound);
+  Serial.print(" ");
+  Serial.print(minSound);
+  Serial.print(" ");
+  Serial.print(maxSound);
+  Serial.print(" ");
+  Serial.println(soundRatio);
+  Serial.print(" ");
+  Serial.println(maxBucketIndex);
+  */
+}
+
+typedef void (* Program)(float);
+Program PROGRAMS[] = {hot_and_cold, rainbow_stripes, rainbow_mirror_stripes, white_mirror_comet, twinkle, uniform_rainbow, white_bar, red_bar, visualizer};
+
+void loop() {
+  // Respond to any pending messages
+  handle_messages();
+
+  // Send a time sync ping twice a second
+  if (millis() - lastPing > 500) {
+    send_ping();
+    lastPing = millis();
+  }
+
+  if (millis() > 1000) {
+    float t = ((float) (millis() + timeDelta)) / 1000.0;
+    int num = sizeof(PROGRAMS)/ sizeof(PROGRAMS[0]);
+    FastLED.setBrightness(((activeProgram % 3) + 1)*15);
+    PROGRAMS[(activeProgram/3) % num](t);
+  } else {
+    showVoltage();
+  }
+  FastLED.show();
 }
